@@ -1,0 +1,10 @@
+pandas
+pyarrow
+orjson
+openpyxl
+streamlit
+fastapi
+uvicorn[standard]
+python-multipart
+pytest
+python-dotenv

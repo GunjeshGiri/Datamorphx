@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datamorphx"
+version = "0.1.0"
+description = "High-performance data format converter: CSV/JSON/Excel/Feather/Parquet"
+authors = [{name="Gunjesh Giri", email="gunjeshgirigoswami@gmail.com"}]
+dependencies = [
+    "pandas>=1.5",
+    "pyarrow>=11.0",
+    "orjson",
+    "openpyxl",
+    "streamlit",
+    "fastapi",
+    "uvicorn[standard]",
+    "pytest",
+]
