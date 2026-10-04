@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# NOTE: distribution name kept as-is until the naming decision is made (see roadmap §7).
+name = "datamorphx-gunjesh"
+version = "1.1.0"
+description = "High-performance data format converter (CSV, JSON, Excel, Feather, Parquet)"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Gunjesh Giri", email = "gunjeshgirigoswami@gmail.com" }]
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+# Core library only — no web frameworks or test tools.
+dependencies = [
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "orjson>=3.9",
+    "openpyxl>=3.1",
+    "duckdb>=1.0.0",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
+]
+ui = [
+    "streamlit>=1.30",
+]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",  # required by fastapi.testclient
+]
+all = ["datamorphx-gunjesh[api,ui,dev]"]
+
+[project.urls]
+Homepage = "https://github.com/GunjeshGiri/Datamorphx"
+
+[project.scripts]
+datamorphx = "datamorphx.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["datamorphx*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

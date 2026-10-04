@@ -32,20 +32,20 @@ Designed for **speed**, **accuracy**, and **real-world deployment**.
 # 📌 Features
 
 ### 🔁 Multi-format Conversion  
-Convert **any → any** among CSV, JSON, Excel, Feather, Parquet.
+Convert **any → any** among CSV, JSON, Excel, Feather, Parquet (`.xls` is read-only).
 
 ### ⚡ High-Performance Engine  
 Uses PyArrow columnar engine + orjson for blazing-fast conversion.
 
 ### 🔍 Validation Layer  
-Ensures:
-- Row/column consistency  
-- Sample data hash match  
-- Type inference consistency  
+After conversion, the output is read back and checked for:
+- Row count match  
+- Column names and order match  
+- Content hash match on a sample (first 1,000 rows)  
 
 ### 🧰 Multiple Interfaces  
 - **API** → FastAPI  
-- **UI** →Streamlit  
+- **UI** → Streamlit  
 - **CLI** → `datamorphx input output`  
 - **Python Package** → `pip install -e .`
 
@@ -54,69 +54,88 @@ Full local stack with API + UI.
 
 ---
 
+# ⚙️ Installation
+
+```bash
+pip install -e .              # core library + CLI only
+pip install -e ".[api]"       # + FastAPI service
+pip install -e ".[ui]"        # + Streamlit UI
+pip install -e ".[api,ui,dev]"  # everything, incl. tests  (same as: pip install -r requirements.txt)
+```
+
+# ▶️ Usage
+
+**CLI**
+```bash
+datamorphx data.csv data.parquet            # prints a JSON report
+datamorphx data.parquet data.xlsx --no-validate
+```
+Exit codes: `0` success · `1` validation failed · `2` bad input (missing file / unsupported format).
+
+**Python**
+```python
+from datamorphx.converter import DataMorphX
+meta = DataMorphX().convert("data.csv", "data.parquet", validate=True)
+```
+
+**API**
+```bash
+uvicorn app.fastapi_app:app --port 8000
+curl -F "file=@data.csv" -F "output_format=parquet" http://localhost:8000/convert -o data.parquet -D -
+```
+| Endpoint | Description |
+| :--- | :--- |
+| `POST /convert` | Form fields `file`, `output_format`, optional `validate` (default `true`). Returns the converted file; the conversion report is in the `X-DataMorphX-Meta` response header (JSON). |
+| `GET /formats` | Supported input / output formats |
+| `GET /health` | Liveness check |
+
+Uploads are limited to `DATAMORPHX_MAX_UPLOAD_MB` (default `100`) and are checked by content, not just extension. Each request uses a private temp directory that is deleted after the response.
+
+**UI**
+```bash
+streamlit run app/streamlit_app.py
+```
+
+**Docker**
+```bash
+docker compose up --build    # API on :8000, UI on :8501
+```
+
+**Tests**
+```bash
+pytest -q
+```
+
+---
+
 # 📂 Project Structure
-datamorphx/
-
-=>├── src/
-
-│   └── datamorphx/
-
-│       ├── __init__.py
-
-│       ├── converter.py
-
-│       ├── utils.py
-
-│       ├── validators.py
-
-│       └── exceptions.py
-
-
-=>├── app/
-
-│   ├── fastapi_app.py
-
-│   └── streamlit_app.py
-
-=>├── cli/
-
-│   └── datamorphx_cli.py
-
+```
+Datamorphx/
+├── datamorphx/              # core library
+│   ├── __init__.py
+│   ├── converter.py         # DataMorphX: read / write / convert
+│   ├── validators.py        # post-conversion equivalence checks
+│   ├── utils.py             # extension + content sniffing helpers
+│   ├── exceptions.py
+│   └── cli.py               # `datamorphx` command
+├── app/
+│   ├── fastapi_app.py       # REST API
+│   └── streamlit_app.py     # web UI
+├── cli/
+│   └── datamorphx_cli.py    # legacy shim -> datamorphx.cli
 ├── tests/
-
 │   ├── test_converter.py
-
-│   └── sample_data/
-
-│ _______    └── sample.csv
-├── docker/
-
-│   ├── Dockerfile        
-
-│   ├── docker-compose.yml
-
-│   └── entrypoint.sh
-
-│
-├── .github/
-
-│   └── workflows/
-
-│ ________  └── tests.yml 
-
-├── pyproject_backup.toml
-
-├── setup.cfg    
-
-├── setup.py    
-
-├── requirements.txt
-
+│   ├── test_api.py
+│   ├── test_cli_and_utils.py
+│   └── sample_data/sample.csv
+├── .github/workflows/ci.yml
+├── Dockerfile
+├── docker-compose.yml
+├── pyproject.toml           # packaging + dependencies (single source of truth)
+├── requirements.txt         # dev convenience: -e .[api,ui,dev]
+├── run_all_tests.bat
 ├── LICENSE
-
-├── README.md
-
-└── run_all_tests.bat
-
+└── README.md
+```
 
 ---
