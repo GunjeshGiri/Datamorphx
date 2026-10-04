@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 # NOTE: distribution name kept as-is until the naming decision is made (see roadmap §7).
-name = "datamorphx-gunjesh"
+name = "datamorphx"
 version = "1.1.0"
 description = "High-performance data format converter (CSV, JSON, Excel, Feather, Parquet)"
 readme = "README.md"
@@ -30,6 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 api = [
     "fastapi>=0.110",
+    "slowapi>=0.1",
     "uvicorn[standard]>=0.27",
     "python-multipart>=0.0.9",
 ]
@@ -47,6 +48,7 @@ Homepage = "https://github.com/GunjeshGiri/Datamorphx"
 
 [project.scripts]
 datamorphx = "datamorphx.cli:main"
+dmx = "datamorphx.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["datamorphx*"]

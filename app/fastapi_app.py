@@ -16,10 +16,15 @@ import re
 import shutil
 import tempfile
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Depends, Security, Request
+from fastapi.security.api_key import APIKeyHeader
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
+from starlette.status import HTTP_403_FORBIDDEN
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from datamorphx.converter import DataMorphX, READABLE, WRITABLE
 from datamorphx.utils import content_matches_extension, ext_of
@@ -27,6 +32,24 @@ from datamorphx.utils import content_matches_extension, ext_of
 MAX_UPLOAD_MB = int(os.getenv("DATAMORPHX_MAX_UPLOAD_MB", "100"))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 _CHUNK = 1024 * 1024
+
+limiter = Limiter(key_func=get_remote_address)
+app = FastAPI(title="DataMorphX API", version="1.2.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+
+# In production, read from a database or secure vault.
+VALID_API_KEYS = set(os.getenv("DATAMORPHX_API_KEYS", "test-key-123").split(","))
+
+async def get_api_key(api_key_header: str = Security(api_key_header)):
+    if not api_key_header or api_key_header not in VALID_API_KEYS:
+        raise HTTPException(
+            status_code=HTTP_403_FORBIDDEN, detail="Could not validate API key"
+        )
+    return api_key_header
 
 MEDIA_TYPES = {
     "csv": "text/csv",
@@ -36,7 +59,7 @@ MEDIA_TYPES = {
     "parquet": "application/vnd.apache.parquet",
 }
 
-app = FastAPI(title="DataMorphX API", version="1.1.0")
+
 
 
 def _safe_stem(filename: str | None) -> str:
@@ -52,15 +75,18 @@ def health() -> dict:
 
 
 @app.get("/formats")
-def formats() -> dict:
+def formats(_: str = Depends(get_api_key)) -> dict:
     return {"readable": sorted(READABLE), "writable": sorted(WRITABLE)}
 
 
 @app.post("/convert")
+@limiter.limit("10/minute")
 async def convert_endpoint(
+    request: Request,
     output_format: str = Form(...),
     file: UploadFile = File(...),
     do_validate: bool = Form(True, alias="validate"),
+    _: str = Depends(get_api_key),
 ):
     output_format = output_format.lower().strip()
     if output_format not in WRITABLE:

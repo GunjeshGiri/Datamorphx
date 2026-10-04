@@ -32,3 +32,11 @@ Thumbs.db
 
 # Docker artifacts
 docker/*.log
+
+# AI Tooling & Scratchpads
+.gemini/
+.aider/
+.cline/
+AGENTS.md
+CLAUDE.md
+*.scratchpad*

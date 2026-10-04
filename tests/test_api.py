@@ -7,7 +7,14 @@ from fastapi.testclient import TestClient
 
 import app.fastapi_app as api
 
-client = TestClient(api.app)
+class AuthedTestClient(TestClient):
+    def request(self, *args, **kwargs):
+        headers = kwargs.get("headers") or {}
+        headers["X-API-Key"] = "test-key-123"
+        kwargs["headers"] = headers
+        return super().request(*args, **kwargs)
+
+client = AuthedTestClient(api.app)
 CSV_BYTES = b"a,b\n1,x\n2,y\n3,z\n"
 
 
