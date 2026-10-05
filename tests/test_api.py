@@ -5,7 +5,10 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-import app.fastapi_app as api
+# The API fails closed without configured keys; give the test suite its own.
+os.environ.setdefault("DATAMORPHX_API_KEYS", "test-key-123")
+
+import app.fastapi_app as api  # noqa: E402
 
 class AuthedTestClient(TestClient):
     def request(self, *args, **kwargs):
@@ -103,3 +106,15 @@ def test_rejects_oversized_upload(monkeypatch):
 def test_bad_data_returns_400():
     r = client.post("/convert", data={"output_format": "csv"}, files={"file": ("a.json", b"[not json")})
     assert r.status_code == 400
+
+
+def test_missing_or_invalid_api_key_is_rejected():
+    raw = TestClient(api.app)  # no auth header injected
+    files = {"file": ("a.csv", CSV_BYTES)}
+    assert raw.post("/convert", data={"output_format": "json"}, files=files).status_code == 403
+    assert raw.post("/convert", data={"output_format": "json"}, files=files,
+                    headers={"X-API-Key": "wrong"}).status_code == 403
+
+
+def test_default_upload_limit_is_50mb():
+    assert api.MAX_UPLOAD_MB == int(os.getenv("DATAMORPHX_MAX_UPLOAD_MB", "50"))

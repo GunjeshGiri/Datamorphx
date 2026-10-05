@@ -29,7 +29,7 @@ from slowapi.errors import RateLimitExceeded
 from datamorphx.converter import DataMorphX, READABLE, WRITABLE
 from datamorphx.utils import content_matches_extension, ext_of
 
-MAX_UPLOAD_MB = int(os.getenv("DATAMORPHX_MAX_UPLOAD_MB", "100"))
+MAX_UPLOAD_MB = int(os.getenv("DATAMORPHX_MAX_UPLOAD_MB", "50"))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 _CHUNK = 1024 * 1024
 
@@ -42,7 +42,8 @@ API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
 # In production, read from a database or secure vault.
-VALID_API_KEYS = set(os.getenv("DATAMORPHX_API_KEYS", "test-key-123").split(","))
+# Fail closed: with no keys configured, every request is rejected (no default key).
+VALID_API_KEYS = {k.strip() for k in os.getenv("DATAMORPHX_API_KEYS", "").split(",") if k.strip()}
 
 async def get_api_key(api_key_header: str = Security(api_key_header)):
     if not api_key_header or api_key_header not in VALID_API_KEYS:

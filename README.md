@@ -81,7 +81,7 @@ meta = DataMorphX().convert("data.csv", "data.parquet", validate=True)
 **API**
 ```bash
 uvicorn app.fastapi_app:app --port 8000
-curl -F "file=@data.csv" -F "output_format=parquet" http://localhost:8000/convert -o data.parquet -D -
+curl -H "X-API-Key: $DATAMORPHX_API_KEY" -F "file=@data.csv" -F "output_format=parquet" http://localhost:8000/convert -o data.parquet -D -
 ```
 | Endpoint | Description |
 | :--- | :--- |
@@ -89,7 +89,7 @@ curl -F "file=@data.csv" -F "output_format=parquet" http://localhost:8000/conver
 | `GET /formats` | Supported input / output formats |
 | `GET /health` | Liveness check |
 
-Uploads are limited to `DATAMORPHX_MAX_UPLOAD_MB` (default `100`) and are checked by content, not just extension. Each request uses a private temp directory that is deleted after the response.
+Requests must send an `X-API-Key` header matching one of the comma-separated keys in `DATAMORPHX_API_KEYS` (the API rejects everything if none are set). Uploads are limited to `DATAMORPHX_MAX_UPLOAD_MB` (default `50`) and are checked by content, not just extension. Each request uses a private temp directory that is deleted after the response.
 
 **UI**
 ```bash

@@ -5,7 +5,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATAMORPHX_MAX_UPLOAD_MB=100
+      - DATAMORPHX_MAX_UPLOAD_MB=50
+      # Comma-separated keys; the API rejects all requests if this is empty.
+      - DATAMORPHX_API_KEYS=${DATAMORPHX_API_KEYS:-}
     volumes:
       - ./datamorphx:/app/datamorphx
       - ./app:/app/app
