@@ -12,7 +12,7 @@ import {
     Wand2, FileCode, Search, Terminal, Zap, ShieldCheck, 
     ChevronDown, RefreshCw, Layers, CheckCircle2, FileSpreadsheet,
     PanelLeftClose, PanelLeftOpen, Network, Share2, Filter, X,
-    ChevronRight, ArrowRight, HelpCircle, Info
+    ChevronRight, ArrowRight, HelpCircle, Info, Bot, Key
 } from 'lucide-react';
 import * as LZString from 'lz-string';
 
@@ -20,11 +20,7 @@ import {
     generateHTML,
     generateYAML,
     generateXML,
-    generateLaTeX,
-    generateJira,
-    generateMediaWiki,
-    generateAsciiDoc,
-    generateBBCode
+    generateLaTeX
 } from '@/lib/exporters';
 import { SAMPLE_DATASETS, SampleDataset } from '@/lib/sampleDatasets';
 
@@ -68,16 +64,17 @@ export default function Workbench() {
     const [copiedUrl, setCopiedUrl] = useState<boolean>(false);
     const [showGuide, setShowGuide] = useState<boolean>(false);
 
-    // Profiler & Diff state
-    const [activeTab, setActiveTab] = useState<'data' | 'profiler' | 'diff'>('data');
+    // AI SQL Copilot state (Powered by Groq LLaMA 3.3)
+    const [aiPrompt, setAiPrompt] = useState<string>('');
+    const [aiLoading, setAiLoading] = useState<boolean>(false);
+    const [aiSuccessMsg, setAiSuccessMsg] = useState<string | null>(null);
+    const [customGroqKey, setCustomGroqKey] = useState<string>('');
+    const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
+
+    // Profiler state (Streamlined view)
+    const [activeTab, setActiveTab] = useState<'data' | 'profiler'>('data');
     const [profilerData, setProfilerData] = useState<any[]>([]);
     const [profilerColDefs, setProfilerColDefs] = useState<any[]>([]);
-    
-    // Diff Tool State
-    const [diffTable1, setDiffTable1] = useState<string>('');
-    const [diffTable2, setDiffTable2] = useState<string>('');
-    const [diffData, setDiffData] = useState<any[]>([]);
-    const [diffColDefs, setDiffColDefs] = useState<any[]>([]);
     
     // Export state
     const [exportFormat, setExportFormat] = useState<string>('parquet');
@@ -87,6 +84,12 @@ export default function Workbench() {
 
     // Initialize DuckDB WebAssembly on mount and auto-load demo sample
     useEffect(() => {
+        // Load saved custom Groq key if present
+        if (typeof window !== 'undefined') {
+            const savedKey = localStorage.getItem('datamorphx_groq_key');
+            if (savedKey) setCustomGroqKey(savedKey);
+        }
+
         getDuckDB().then(async () => {
             setLoading(false);
             // If no URL hash query was specified, auto-load first demo sample dataset
@@ -317,43 +320,54 @@ export default function Workbench() {
         return ddl + '\n\n' + inserts.join('\n');
     };
 
-    const runDiff = async () => {
-        if (!diffTable1 || !diffTable2) {
-            setError("Please select both files to compare.");
-            return;
-        }
+    const handleGenerateSql = async (overridePrompt?: string) => {
+        const queryPrompt = (overridePrompt || aiPrompt).trim();
+        if (!queryPrompt) return;
 
-        setLoading(true);
+        setAiLoading(true);
         setError(null);
-        try {
-            const diffQuery = `
-                (SELECT 'REMOVED_IN_B' AS diff_status, * FROM read_csv_auto('${diffTable1}') EXCEPT SELECT 'REMOVED_IN_B', * FROM read_csv_auto('${diffTable2}'))
-                UNION ALL
-                (SELECT 'ADDED_IN_B' AS diff_status, * FROM read_csv_auto('${diffTable2}') EXCEPT SELECT 'ADDED_IN_B', * FROM read_csv_auto('${diffTable1}'))
-                LIMIT 500;
-            `;
-            const table = await queryDuckDB(diffQuery);
-            const rows = table.toArray().map(r => r.toJSON());
-            setDiffData(rows);
+        setAiSuccessMsg(null);
 
-            if (table.schema.fields.length > 0) {
-                setDiffColDefs(table.schema.fields.map(f => ({
-                    field: f.name,
-                    headerName: f.name,
-                    cellClassRules: {
-                        'text-emerald-400 font-bold': (params: any) => params.data?.diff_status === 'ADDED_IN_B',
-                        'text-rose-400 font-bold': (params: any) => params.data?.diff_status === 'REMOVED_IN_B',
-                    },
-                    sortable: true,
-                    filter: true,
-                    resizable: true,
-                })));
+        try {
+            const res = await fetch('/api/ai/sql', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt: queryPrompt,
+                    schema: schemaFields.map(f => ({ name: f.name, type: f.type })),
+                    customApiKey: customGroqKey || undefined
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to generate SQL');
+            }
+
+            if (data.sql) {
+                setSql(data.sql);
+                setAiSuccessMsg(`✨ Generated with Groq LLaMA 3.3`);
+                setTimeout(() => setAiSuccessMsg(null), 3500);
+                // Execute generated query immediately
+                await runQuery(data.sql);
             }
         } catch (err: any) {
-            setError("Diff failed: " + err.message + ". Ensure both files share identical column structures.");
+            setError(`AI Copilot Error: ${err.message}`);
         } finally {
-            setLoading(false);
+            setAiLoading(false);
         }
+    };
+
+    const saveCustomGroqKey = (key: string) => {
+        setCustomGroqKey(key);
+        if (typeof window !== 'undefined') {
+            if (key.trim()) {
+                localStorage.setItem('datamorphx_groq_key', key.trim());
+            } else {
+                localStorage.removeItem('datamorphx_groq_key');
+            }
+        }
+        setShowKeyModal(false);
     };
 
     const applySmartCast = () => {
@@ -441,14 +455,6 @@ export default function Workbench() {
                 textOutput = generateXML(rowData);
             } else if (exportFormat === 'latex') {
                 textOutput = generateLaTeX(rowData, colDefs);
-            } else if (exportFormat === 'jira') {
-                textOutput = generateJira(rowData, colDefs);
-            } else if (exportFormat === 'mediawiki') {
-                textOutput = generateMediaWiki(rowData, colDefs);
-            } else if (exportFormat === 'asciidoc') {
-                textOutput = generateAsciiDoc(rowData, colDefs);
-            } else if (exportFormat === 'bbcode') {
-                textOutput = generateBBCode(rowData, colDefs);
             }
 
             const originalBaseName = latestFile ? latestFile.replace(/\.[^/.]+$/, "") : "export";
@@ -457,7 +463,7 @@ export default function Workbench() {
             if (exportFormat === 'markdown') ext = 'md';
             if (exportFormat === 'excel') ext = 'xlsx';
             if (exportFormat === 'yaml') ext = 'yml';
-            if (['latex', 'jira', 'mediawiki', 'asciidoc', 'bbcode'].includes(exportFormat)) ext = 'txt';
+            if (exportFormat === 'latex') ext = 'tex';
             const outputFilename = `${originalBaseName}.${ext}`;
 
             if (textOutput !== null) {
@@ -805,6 +811,45 @@ export default function Workbench() {
                                 </div>
                             </div>
 
+                            {/* Mobile AI Copilot Bar */}
+                            <div className="flex flex-col gap-1.5 p-2 bg-[#09090b] rounded-lg border border-white/10 mb-2">
+                                <div className="flex items-center gap-1.5">
+                                    <div className="relative flex-1">
+                                        <Bot className="w-3.5 h-3.5 text-[#00f5d4] absolute left-2 top-1/2 -translate-y-1/2" />
+                                        <input
+                                            type="text"
+                                            value={aiPrompt}
+                                            onChange={(e) => setAiPrompt(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') handleGenerateSql(); }}
+                                            placeholder="Ask AI Copilot to write DuckDB SQL..."
+                                            className="w-full bg-[#18181b] text-xs font-mono text-zinc-200 pl-7 pr-2 py-1 rounded border border-white/10 focus:border-[#00f5d4] outline-none"
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={() => handleGenerateSql()}
+                                        disabled={aiLoading}
+                                        className="px-2.5 py-1 bg-[#00f5d4]/15 border border-[#00f5d4]/40 text-[#00f5d4] text-xs font-mono rounded flex items-center gap-1 shrink-0"
+                                    >
+                                        {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                                        <span>Ask</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setShowKeyModal(true)}
+                                        className={`p-1 rounded border text-xs shrink-0 ${
+                                            customGroqKey ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-400' : 'bg-[#18181b] border-white/10 text-zinc-400'
+                                        }`}
+                                        title="Groq API Key Settings"
+                                    >
+                                        <Key className="w-3 h-3" />
+                                    </button>
+                                </div>
+                                {aiSuccessMsg && (
+                                    <span className="text-emerald-400 text-[10px] font-mono px-1">
+                                        {aiSuccessMsg}
+                                    </span>
+                                )}
+                            </div>
+
                             <div className="h-64 rounded-lg overflow-hidden border border-white/10 bg-[#09090b]">
                                 <Editor
                                     height="100%"
@@ -1138,6 +1183,68 @@ export default function Workbench() {
                         </div>
                     </div>
 
+                    {/* AI SQL Copilot Bar (Groq LLaMA 3.3) */}
+                    <div className="p-2.5 bg-[#121215] border-b border-white/10 flex flex-col gap-2">
+                        <div className="flex items-center gap-1.5">
+                            <div className="relative flex-1">
+                                <Bot className="w-3.5 h-3.5 text-[#00f5d4] absolute left-2.5 top-1/2 -translate-y-1/2" />
+                                <input
+                                    type="text"
+                                    value={aiPrompt}
+                                    onChange={(e) => setAiPrompt(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') handleGenerateSql(); }}
+                                    placeholder="Ask AI Copilot to write DuckDB SQL (e.g. Find top 10 rows)..."
+                                    className="w-full bg-[#09090b] text-xs font-mono text-zinc-200 pl-8 pr-2 py-1.5 rounded border border-white/10 focus:border-[#00f5d4] outline-none placeholder:text-zinc-500"
+                                />
+                            </div>
+                            <button
+                                onClick={() => handleGenerateSql()}
+                                disabled={aiLoading}
+                                className="px-3 py-1.5 bg-[#00f5d4]/15 hover:bg-[#00f5d4]/25 border border-[#00f5d4]/40 text-[#00f5d4] text-xs font-mono font-medium rounded flex items-center gap-1.5 disabled:opacity-50 transition-colors cursor-pointer shrink-0"
+                                title="Generate SQL query using Groq AI"
+                            >
+                                {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                                <span>Generate</span>
+                            </button>
+                            <button
+                                onClick={() => setShowKeyModal(true)}
+                                className={`p-1.5 rounded border text-xs transition-colors cursor-pointer shrink-0 ${
+                                    customGroqKey ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-400' : 'bg-[#18181b] border-white/10 text-zinc-400 hover:text-white'
+                                }`}
+                                title="Groq API Key Settings"
+                            >
+                                <Key className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+
+                        {/* Quick suggestions & status */}
+                        <div className="flex items-center justify-between gap-2 overflow-x-auto text-[11px] font-mono">
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="text-zinc-500 text-[10px]">Try:</span>
+                                {[
+                                    'Top 10 rows',
+                                    'Count by category',
+                                    'Filter missing values',
+                                    'Summary metrics'
+                                ].map(prompt => (
+                                    <button
+                                        key={prompt}
+                                        onClick={() => { setAiPrompt(prompt); handleGenerateSql(prompt); }}
+                                        disabled={aiLoading}
+                                        className="px-1.5 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-[#00f5d4] border border-white/5 transition-colors cursor-pointer"
+                                    >
+                                        {prompt}
+                                    </button>
+                                ))}
+                            </div>
+                            {aiSuccessMsg && (
+                                <span className="text-emerald-400 text-[10px] shrink-0 font-medium">
+                                    {aiSuccessMsg}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
                     {/* Monaco Editor Container */}
                     <div className="flex-1 relative bg-[#09090b]">
                         <Editor
@@ -1240,18 +1347,6 @@ export default function Workbench() {
                                 <BarChart3 className="w-3.5 h-3.5 text-purple-400" />
                                 <span>Profiler</span>
                             </button>
-
-                            <button 
-                                onClick={() => setActiveTab('diff')} 
-                                className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition-all ${
-                                    activeTab === 'diff' 
-                                        ? 'bg-[#18181b] text-emerald-400 shadow-sm' 
-                                        : 'text-zinc-400 hover:text-zinc-200'
-                                }`}
-                            >
-                                <GitCompare className="w-3.5 h-3.5 text-emerald-400" />
-                                <span>Data Diff</span>
-                            </button>
                         </div>
 
                         {/* Stitch Latency & Telemetry Micro-Badges */}
@@ -1319,10 +1414,6 @@ export default function Workbench() {
                                 <option value="yaml">YAML Document</option>
                                 <option value="xml">XML Document</option>
                                 <option value="latex">LaTeX Table</option>
-                                <option value="jira">Jira Markup</option>
-                                <option value="mediawiki">MediaWiki</option>
-                                <option value="asciidoc">AsciiDoc</option>
-                                <option value="bbcode">BBCode</option>
                             </select>
                         </div>
 
@@ -1497,7 +1588,8 @@ dm.write(res, 'output.${exportFormat === 'markdown' || exportFormat === 'sql' ? 
                                     </div>
                                 </div>
                             )
-                        ) : activeTab === 'profiler' ? (
+                        ) : (
+                            /* Profiler Summary Tab */
                             profilerData.length > 0 ? (
                                 <div className="h-full w-full rounded overflow-hidden border border-white/10 shadow-2xl">
                                     <AgGridReact
@@ -1513,60 +1605,6 @@ dm.write(res, 'output.${exportFormat === 'markdown' || exportFormat === 'sql' ? 
                                     <span>Run a query to generate data profiling metrics (cardinality, min, max, null counts).</span>
                                 </div>
                             )
-                        ) : (
-                            /* Data Diff Tool */
-                            <div className="flex flex-col h-full gap-2.5">
-                                <div className="flex flex-wrap gap-3 items-center bg-[#121215] p-3 rounded border border-white/10">
-                                    <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
-                                        <label className="text-xs text-zinc-400 font-medium">Original File (A)</label>
-                                        <select 
-                                            value={diffTable1} 
-                                            onChange={(e) => setDiffTable1(e.target.value)}
-                                            className="bg-[#09090b] border border-white/10 text-zinc-200 rounded p-1.5 text-xs outline-none focus:border-[#00f5d4]"
-                                        >
-                                            <option value="">Select table...</option>
-                                            {files.map(f => <option key={f} value={f}>{f}</option>)}
-                                        </select>
-                                    </div>
-                                    <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
-                                        <label className="text-xs text-zinc-400 font-medium">Modified File (B)</label>
-                                        <select 
-                                            value={diffTable2} 
-                                            onChange={(e) => setDiffTable2(e.target.value)}
-                                            className="bg-[#09090b] border border-white/10 text-zinc-200 rounded p-1.5 text-xs outline-none focus:border-[#00f5d4]"
-                                        >
-                                            <option value="">Select table...</option>
-                                            {files.map(f => <option key={f} value={f}>{f}</option>)}
-                                        </select>
-                                    </div>
-                                    <div className="flex flex-col gap-1 pt-4">
-                                        <button 
-                                            onClick={runDiff} 
-                                            disabled={loading || !diffTable1 || !diffTable2}
-                                            className="bg-[#00f5d4] hover:bg-[#26fedc] text-[#09090b] px-4 py-1.5 rounded text-xs font-semibold transition-all disabled:opacity-40 flex items-center gap-1.5 cursor-pointer"
-                                        >
-                                            <GitCompare className="w-3.5 h-3.5" />
-                                            <span>Run Comparison</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                <div className="flex-1 relative rounded overflow-hidden border border-white/10 bg-[#09090b]">
-                                    {diffData.length > 0 ? (
-                                        <AgGridReact
-                                            rowData={diffData}
-                                            columnDefs={diffColDefs}
-                                            theme={themeAlpine.withPart(colorSchemeDark)}
-                                            defaultColDef={{ sortable: true, filter: true, resizable: true }}
-                                        />
-                                    ) : (
-                                        <div className="flex flex-col items-center justify-center h-full text-zinc-500 text-xs p-6 text-center">
-                                            <GitCompare className="w-8 h-8 mb-2 text-zinc-600" />
-                                            <span>Select two loaded tables sharing identical columns to identify added and deleted rows via DuckDB EXCEPT.</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
                         )}
                     </div>
                 </div>
@@ -1638,6 +1676,85 @@ dm.write(res, 'output.${exportFormat === 'markdown' || exportFormat === 'sql' ? 
                                 className="px-4 py-2 bg-[#00f5d4] hover:bg-[#26fedc] text-[#09090b] font-semibold text-xs rounded-xl shadow-md transition-all cursor-pointer"
                             >
                                 Got It!
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ============================================================
+                GROQ AI API KEY MODAL DIALOG
+                ============================================================ */}
+            {showKeyModal && (
+                <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-[#121215] border border-white/10 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative animate-in fade-in zoom-in-95">
+                        <button 
+                            onClick={() => setShowKeyModal(false)}
+                            className="absolute top-4 right-4 text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 rounded-xl bg-[#00f5d4]/10 border border-[#00f5d4]/20 flex items-center justify-center text-[#00f5d4]">
+                                <Bot className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h3 className="text-base font-bold text-white">Groq AI Copilot Setup</h3>
+                                <p className="text-xs text-zinc-400 font-mono">Powered by LLaMA 3.3 (70B Versatile)</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3 text-xs text-zinc-300">
+                            <p className="leading-relaxed">
+                                DataMorphX connects to Groq&apos;s ultra-fast free-tier LLaMA 3.3 engine with dual-key server failover. You can also provide your own personal key below (stored safely in your browser&apos;s local storage).
+                            </p>
+
+                            <div className="p-3 rounded-xl bg-[#18181b] border border-white/5">
+                                <label className="block text-[11px] font-mono text-zinc-400 mb-1.5">
+                                    Custom Groq API Key (Optional)
+                                </label>
+                                <input
+                                    type="password"
+                                    placeholder="gsk_..."
+                                    defaultValue={customGroqKey}
+                                    id="customGroqKeyInput"
+                                    className="w-full bg-[#09090b] text-xs font-mono text-zinc-200 px-3 py-2 rounded-lg border border-white/10 focus:border-[#00f5d4] outline-none"
+                                />
+                                <div className="flex items-center justify-between mt-2 text-[10px] text-zinc-500 font-mono">
+                                    <a 
+                                        href="https://console.groq.com/keys" 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-[#00f5d4] hover:underline"
+                                    >
+                                        Get free key at console.groq.com →
+                                    </a>
+                                    <span>Free: 14,400 req/day</span>
+                                </div>
+                            </div>
+
+                            <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-800/40 text-emerald-300 text-[11px] flex items-center gap-2">
+                                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                                <span><strong>100% Privacy Protected:</strong> Only table column names and types are sent to Groq. Your dataset rows and files NEVER leave browser memory.</span>
+                            </div>
+                        </div>
+
+                        <div className="mt-5 flex items-center justify-between gap-2">
+                            <button
+                                onClick={() => saveCustomGroqKey('')}
+                                className="px-3 py-2 text-zinc-400 hover:text-white text-xs font-mono hover:bg-white/5 rounded-xl transition-colors"
+                            >
+                                Clear Key (Use Server Keys)
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const input = document.getElementById('customGroqKeyInput') as HTMLInputElement;
+                                    saveCustomGroqKey(input ? input.value : '');
+                                }}
+                                className="px-4 py-2 bg-[#00f5d4] hover:bg-[#26fedc] text-[#09090b] font-semibold text-xs rounded-xl shadow-md transition-all cursor-pointer"
+                            >
+                                Save Key
                             </button>
                         </div>
                     </div>
