@@ -12,7 +12,7 @@ import {
     Wand2, FileCode, Search, Terminal, Zap, ShieldCheck, 
     ChevronDown, RefreshCw, Layers, CheckCircle2, FileSpreadsheet,
     PanelLeftClose, PanelLeftOpen, Network, Share2, Filter, X,
-    ChevronRight, ArrowRight
+    ChevronRight, ArrowRight, HelpCircle, Info
 } from 'lucide-react';
 import * as LZString from 'lz-string';
 
@@ -66,6 +66,7 @@ export default function Workbench() {
     const [isSchemaSidebarOpen, setIsSchemaSidebarOpen] = useState<boolean>(true);
     const [mobileTab, setMobileTab] = useState<'table' | 'sql' | 'schema' | 'export'>('table');
     const [copiedUrl, setCopiedUrl] = useState<boolean>(false);
+    const [showGuide, setShowGuide] = useState<boolean>(false);
 
     // Profiler & Diff state
     const [activeTab, setActiveTab] = useState<'data' | 'profiler' | 'diff'>('data');
@@ -84,10 +85,14 @@ export default function Workbench() {
     const [copiedFormat, setCopiedFormat] = useState<boolean>(false);
     const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
 
-    // Initialize DuckDB WebAssembly on mount
+    // Initialize DuckDB WebAssembly on mount and auto-load demo sample
     useEffect(() => {
-        getDuckDB().then(() => {
+        getDuckDB().then(async () => {
             setLoading(false);
+            // If no URL hash query was specified, auto-load first demo sample dataset
+            if (typeof window !== 'undefined' && !window.location.hash.startsWith('#sql=')) {
+                await loadSample(SAMPLE_DATASETS[0]);
+            }
         }).catch(err => {
             console.error(err);
             setError('Failed to initialize local DuckDB WebAssembly engine.');
@@ -197,6 +202,13 @@ export default function Workbench() {
     const runQuery = async (queryToRun: string = sql) => {
         setLoading(true);
         setError(null);
+
+        // If no table is loaded yet and query targets 'data', auto-load the default sample dataset first!
+        if (files.length === 0 && (queryToRun.includes('data') || queryToRun === 'SELECT * FROM data LIMIT 100;')) {
+            await loadSample(SAMPLE_DATASETS[0]);
+            return;
+        }
+
         const startTime = performance.now();
         
         if (typeof window !== 'undefined' && queryToRun !== 'SELECT * FROM data LIMIT 100;') {
@@ -247,7 +259,12 @@ export default function Workbench() {
             }
 
         } catch (err: any) {
-            setError(err.message || 'Query execution error');
+            const msg = err.message || 'Query execution error';
+            if (msg.includes('Table with name data does not exist') || msg.includes('does not exist')) {
+                setError('Table "data" not loaded yet. Click any sample above (e.g. NYC Taxi) or drop a file to query.');
+            } else {
+                setError(msg);
+            }
         } finally {
             setLoading(false);
         }
@@ -559,6 +576,14 @@ export default function Workbench() {
 
                     {/* Touch-Friendly Horizontal Demo Dataset Pills */}
                     <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar whitespace-nowrap py-0.5 shrink-0 touch-pan-x">
+                        <button
+                            onClick={() => setShowGuide(true)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#00f5d4]/10 hover:bg-[#00f5d4]/20 border border-[#00f5d4]/40 text-xs font-mono text-[#00f5d4] font-medium transition-all shrink-0 min-h-[40px] md:min-h-0 cursor-pointer shadow-sm"
+                            title="Interactive guide: how to query & export data"
+                        >
+                            <HelpCircle className="w-3.5 h-3.5" />
+                            <span>How to Use</span>
+                        </button>
                         <span className="text-[10px] font-mono uppercase text-zinc-500 font-medium shrink-0 hidden xs:inline">
                             Samples:
                         </span>
@@ -750,6 +775,14 @@ export default function Workbench() {
                                     <span className="text-xs font-mono font-medium text-zinc-300">query.sql</span>
                                 </div>
                                 <div className="flex items-center gap-1.5">
+                                    <button 
+                                        onClick={() => setShowGuide(true)}
+                                        className="bg-[#18181b] hover:bg-zinc-800 text-[#00f5d4] text-xs px-2 py-1 rounded border border-white/10 flex items-center gap-1 font-mono"
+                                        title="How to Use"
+                                    >
+                                        <HelpCircle className="w-3 h-3 text-[#00f5d4]" />
+                                        <span>Guide</span>
+                                    </button>
                                     <select 
                                         className="bg-[#18181b] text-zinc-300 text-xs px-2 py-1 rounded border border-white/10 outline-none"
                                         onChange={(e) => { if(e.target.value) { applyCleanup(e.target.value); e.target.value=''; } }}
@@ -1070,8 +1103,17 @@ export default function Workbench() {
                             </div>
                         </div>
 
-                        {/* Code Cleanup & Auto-Cast Tools */}
+                        {/* Code Cleanup, Guide & Auto-Cast Tools */}
                         <div className="flex items-center gap-1">
+                            <button 
+                                onClick={() => setShowGuide(true)}
+                                className="bg-[#18181b] hover:bg-zinc-800 text-[#00f5d4] font-medium py-1 px-2 rounded flex items-center gap-1 border border-white/10 transition-colors text-xs cursor-pointer"
+                                title="How to use DataMorphX"
+                            >
+                                <HelpCircle className="w-3 h-3 text-[#00f5d4]" />
+                                <span>Guide</span>
+                            </button>
+
                             <select 
                                 className="bg-[#18181b] hover:bg-zinc-800 text-zinc-300 font-medium py-1 px-2 rounded outline-none text-xs border border-white/10 transition-colors cursor-pointer"
                                 onChange={(e) => { if(e.target.value) { applyCleanup(e.target.value); e.target.value=''; } }}
@@ -1134,6 +1176,13 @@ export default function Workbench() {
                                 {copiedUrl ? <Check className="w-3.5 h-3.5 text-[#00f5d4]" /> : <Share2 className="w-3.5 h-3.5" />}
                                 <span>{copiedUrl ? 'Copied' : 'Share'}</span>
                             </button>
+                            <span className="hidden xl:inline text-[10px] font-mono text-zinc-500 border-l border-white/10 pl-2">
+                                {files.length > 0 ? (
+                                    <span>Target: <strong className="text-[#00f5d4]">data</strong></span>
+                                ) : (
+                                    <span className="text-amber-400/80">Click Run to load demo</span>
+                                )}
+                            </span>
                         </div>
 
                         <button 
@@ -1522,6 +1571,78 @@ dm.write(res, 'output.${exportFormat === 'markdown' || exportFormat === 'sql' ? 
                     </div>
                 </div>
             </div>
+
+            {/* ============================================================
+                INTERACTIVE "HOW TO USE" MODAL DIALOG
+                ============================================================ */}
+            {showGuide && (
+                <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-[#121215] border border-white/10 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl relative animate-in fade-in zoom-in-95">
+                        <button 
+                            onClick={() => setShowGuide(false)}
+                            className="absolute top-4 right-4 text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 rounded-xl bg-[#00f5d4]/10 border border-[#00f5d4]/20 flex items-center justify-center text-[#00f5d4]">
+                                <Sparkles className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h3 className="text-base font-bold text-white">How to Use DataMorphX</h3>
+                                <p className="text-xs text-zinc-400 font-mono">Zero-Upload In-Browser Data Studio</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3 text-xs text-zinc-300">
+                            <div className="p-3 rounded-xl bg-[#18181b] border border-white/5 flex gap-3">
+                                <span className="w-6 h-6 rounded-full bg-[#00f5d4]/10 text-[#00f5d4] flex items-center justify-center font-bold text-xs shrink-0">1</span>
+                                <div>
+                                    <strong className="text-white block mb-0.5">Load or Pick Data</strong>
+                                    <span>Drop any CSV, Excel (.xlsx), Parquet, or JSON file into the top area, or click one of the demo samples (⚡ NYC Taxi, 📊 Financials, 🛒 Orders). It registers automatically in browser RAM as SQL view <code className="text-[#00f5d4] bg-black/40 px-1 py-0.5 rounded font-mono">data</code>.</span>
+                                </div>
+                            </div>
+
+                            <div className="p-3 rounded-xl bg-[#18181b] border border-white/5 flex gap-3">
+                                <span className="w-6 h-6 rounded-full bg-[#00f5d4]/10 text-[#00f5d4] flex items-center justify-center font-bold text-xs shrink-0">2</span>
+                                <div>
+                                    <strong className="text-white block mb-0.5">Run SQL in Browser Memory</strong>
+                                    <span>Query <code className="text-[#00f5d4] bg-black/40 px-1 py-0.5 rounded font-mono">FROM data</code> in the Monaco editor. Press <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 border border-white/10 font-mono text-[10px]">Ctrl+Enter</kbd> or click <strong>Run Query</strong>. Queries execute directly in DuckDB-WASM in 2-10 milliseconds.</span>
+                                </div>
+                            </div>
+
+                            <div className="p-3 rounded-xl bg-[#18181b] border border-white/5 flex gap-3">
+                                <span className="w-6 h-6 rounded-full bg-[#00f5d4]/10 text-[#00f5d4] flex items-center justify-center font-bold text-xs shrink-0">3</span>
+                                <div>
+                                    <strong className="text-white block mb-0.5">Inspect &amp; Export Formats</strong>
+                                    <span>Browse rows in the Data Grid, check summary stats in the <strong>Profiler</strong> tab, or export directly to Parquet, CSV, Excel, JSON, Markdown, LaTeX, and more using the TableConvert format strip.</span>
+                                </div>
+                            </div>
+
+                            <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-800/40 text-emerald-300 text-[11px] flex items-center gap-2">
+                                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                                <span><strong>100% Private:</strong> Zero data egress. User datasets never leave your browser RAM.</span>
+                            </div>
+                        </div>
+
+                        <div className="mt-5 flex items-center justify-between">
+                            <button 
+                                onClick={() => { setShowGuide(false); loadSample(SAMPLE_DATASETS[0]); }}
+                                className="text-xs text-[#00f5d4] hover:underline font-mono"
+                            >
+                                ⚡ Load Taxi Demo Dataset
+                            </button>
+                            <button 
+                                onClick={() => setShowGuide(false)}
+                                className="px-4 py-2 bg-[#00f5d4] hover:bg-[#26fedc] text-[#09090b] font-semibold text-xs rounded-xl shadow-md transition-all cursor-pointer"
+                            >
+                                Got It!
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
