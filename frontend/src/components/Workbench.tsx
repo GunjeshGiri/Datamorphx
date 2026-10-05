@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getDuckDB, queryDuckDB, registerFile, registerFileText, exportQuery } from '@/lib/duckdb';
 import { AgGridReact } from 'ag-grid-react';
 import { ModuleRegistry, AllCommunityModule, themeAlpine, colorSchemeDark } from 'ag-grid-community';
@@ -144,6 +144,8 @@ export default function Workbench() {
         await loadFile(file);
     };
 
+    const isTableLoadedRef = useRef<boolean>(false);
+
     const loadSample = async (sample: SampleDataset) => {
         setLoading(true);
         setError(null);
@@ -153,10 +155,11 @@ export default function Workbench() {
             // Register as view "data"
             const viewSql = `CREATE OR REPLACE VIEW data AS SELECT * FROM read_csv_auto('${sample.filename}')`;
             await queryDuckDB(viewSql);
+            isTableLoadedRef.current = true;
 
             setFiles(prev => prev.includes(sample.filename) ? prev : [...prev, sample.filename]);
             setSql(sample.defaultSql);
-            await runQuery(sample.defaultSql);
+            await runQuery(sample.defaultSql, true);
         } catch (err: any) {
             setError(err.message || 'Failed to load sample dataset');
         } finally {
@@ -190,11 +193,12 @@ export default function Workbench() {
             }
             
             await queryDuckDB(viewSql);
+            isTableLoadedRef.current = true;
             setFiles(prev => prev.includes(name) ? prev : [...prev, name]);
             
             const initialSql = 'SELECT * FROM data LIMIT 100;';
             setSql(initialSql);
-            await runQuery(initialSql);
+            await runQuery(initialSql, true);
         } catch (err: any) {
             setError(err.message || 'Failed to load file');
         } finally {
@@ -202,12 +206,12 @@ export default function Workbench() {
         }
     };
 
-    const runQuery = async (queryToRun: string = sql) => {
+    const runQuery = async (queryToRun: string = sql, skipAutoLoad: boolean = false) => {
         setLoading(true);
         setError(null);
 
         // If no table is loaded yet and query targets 'data', auto-load the default sample dataset first!
-        if (files.length === 0 && (queryToRun.includes('data') || queryToRun === 'SELECT * FROM data LIMIT 100;')) {
+        if (!skipAutoLoad && !isTableLoadedRef.current && files.length === 0 && (queryToRun.includes('data') || queryToRun === 'SELECT * FROM data LIMIT 100;')) {
             await loadSample(SAMPLE_DATASETS[0]);
             return;
         }
@@ -226,6 +230,7 @@ export default function Workbench() {
 
             const rows = table.toArray().map(row => row.toJSON());
             setRowData(rows);
+            isTableLoadedRef.current = true;
             
             if (table.schema.fields.length > 0) {
                 setSchemaFields(table.schema.fields.map(f => ({
