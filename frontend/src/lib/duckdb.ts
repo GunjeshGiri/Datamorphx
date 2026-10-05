@@ -78,3 +78,8 @@ export async function exportQuery(sql: string, format: string, options: string =
         await db.dropFile(outFileName);
     }
 }
+
+if (typeof window !== 'undefined') {
+    (window as any).__datamorphx_duckdb = { getDuckDB, queryDuckDB, exportQuery };
+}
+
