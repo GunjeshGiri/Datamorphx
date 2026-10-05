@@ -45,6 +45,27 @@ const formatArrowType = (typeObj: any): string => {
     return str.split('<')[0];
 };
 
+if (typeof BigInt !== 'undefined' && !(BigInt.prototype as any).toJSON) {
+    (BigInt.prototype as any).toJSON = function () {
+        const num = Number(this);
+        return Number.isSafeInteger(num) ? num : this.toString();
+    };
+}
+
+const cleanArrowRow = (rowObj: any): Record<string, any> => {
+    if (!rowObj || typeof rowObj !== 'object') return rowObj;
+    const clean: Record<string, any> = {};
+    for (const [key, val] of Object.entries(rowObj)) {
+        if (typeof val === 'bigint') {
+            const num = Number(val);
+            clean[key] = Number.isSafeInteger(num) ? num : val.toString();
+        } else {
+            clean[key] = val;
+        }
+    }
+    return clean;
+};
+
 export default function Workbench() {
     const [files, setFiles] = useState<string[]>([]);
     const latestFile = files.length > 0 ? files[files.length - 1] : null;
@@ -228,7 +249,7 @@ export default function Workbench() {
             const duration = Math.round(performance.now() - startTime);
             setExecTimeMs(duration);
 
-            const rows = table.toArray().map(row => row.toJSON());
+            const rows = table.toArray().map(row => cleanArrowRow(row.toJSON()));
             setRowData(rows);
             isTableLoadedRef.current = true;
             
@@ -251,7 +272,7 @@ export default function Workbench() {
             try {
                 const cleanQuery = queryToRun.trim().replace(/;+$/, '');
                 const profilerTable = await queryDuckDB(`SUMMARIZE (${cleanQuery})`);
-                const profRows = profilerTable.toArray().map(r => r.toJSON());
+                const profRows = profilerTable.toArray().map(r => cleanArrowRow(r.toJSON()));
                 setProfilerData(profRows);
                 if (profilerTable.schema.fields.length > 0) {
                     setProfilerColDefs(profilerTable.schema.fields.map(f => ({
