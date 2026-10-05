@@ -46,4 +46,7 @@ test_sandbox/
 *.benchmark.json
 *.stress_output.*
 test_data_gen.log
+Folder 1/
+scripts/*.js
+
 
