@@ -40,3 +40,10 @@ docker/*.log
 AGENTS.md
 CLAUDE.md
 *.scratchpad*
+
+# Local Stress Test Sandbox (Excluded from Git)
+test_sandbox/
+*.benchmark.json
+*.stress_output.*
+test_data_gen.log
+
