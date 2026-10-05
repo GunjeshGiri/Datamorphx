@@ -167,6 +167,21 @@ export default function Workbench() {
 
     const isTableLoadedRef = useRef<boolean>(false);
 
+    const updateTableSchema = async () => {
+        try {
+            const schemaTable = await queryDuckDB('SELECT * FROM data LIMIT 0;');
+            if (schemaTable && schemaTable.schema && schemaTable.schema.fields.length > 0) {
+                setSchemaFields(schemaTable.schema.fields.map(f => ({
+                    name: f.name,
+                    type: formatArrowType(f.type),
+                    nullable: f.nullable
+                })));
+            }
+        } catch (e) {
+            console.error("Could not fetch underlying table schema for 'data':", e);
+        }
+    };
+
     const loadSample = async (sample: SampleDataset) => {
         setLoading(true);
         setError(null);
@@ -177,6 +192,7 @@ export default function Workbench() {
             const viewSql = `CREATE OR REPLACE VIEW data AS SELECT * FROM read_csv_auto('${sample.filename}')`;
             await queryDuckDB(viewSql);
             isTableLoadedRef.current = true;
+            await updateTableSchema();
 
             setFiles(prev => prev.includes(sample.filename) ? prev : [...prev, sample.filename]);
             setSql(sample.defaultSql);
@@ -215,6 +231,7 @@ export default function Workbench() {
             
             await queryDuckDB(viewSql);
             isTableLoadedRef.current = true;
+            await updateTableSchema();
             setFiles(prev => prev.includes(name) ? prev : [...prev, name]);
             
             const initialSql = 'SELECT * FROM data LIMIT 100;';
@@ -254,11 +271,11 @@ export default function Workbench() {
             isTableLoadedRef.current = true;
             
             if (table.schema.fields.length > 0) {
-                setSchemaFields(table.schema.fields.map(f => ({
+                setSchemaFields(prev => prev.length === 0 ? table.schema.fields.map(f => ({
                     name: f.name,
                     type: formatArrowType(f.type),
                     nullable: f.nullable
-                })));
+                })) : prev);
                 setColDefs(table.schema.fields.map(f => ({ 
                     field: f.name,
                     headerName: f.name,
@@ -266,6 +283,10 @@ export default function Workbench() {
                     filter: true,
                     resizable: true,
                 })));
+            }
+
+            if (queryToRun.toLowerCase().includes('create ') && queryToRun.toLowerCase().includes('data')) {
+                await updateTableSchema();
             }
 
             // Run Profiler summary
