@@ -11,6 +11,13 @@ interface RequestBody {
     customApiKey?: string;
 }
 
+const CANDIDATE_MODELS = [
+    'qwen/qwen3.8-27b',
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'openai/gpt-oss-20b'
+];
+
 export async function POST(req: NextRequest) {
     try {
         const body: RequestBody = await req.json();
@@ -62,56 +69,66 @@ STRICT GENERATION RULES:
 
         for (let i = 0; i < keys.length; i++) {
             const key = keys[i];
-            try {
-                const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${key}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        model: 'llama-3.3-70b-versatile',
-                        messages: [
-                            { role: 'system', content: systemPrompt },
-                            { role: 'user', content: prompt }
-                        ],
-                        temperature: 0.1,
-                        max_tokens: 500
-                    })
-                });
 
-                if (response.ok) {
-                    const data = await response.json();
-                    let generatedSql = data.choices?.[0]?.message?.content?.trim() || '';
-                    
-                    // Strip any markdown backticks if returned by the LLM
-                    generatedSql = generatedSql
-                        .replace(/^```(?:sql)?\s*/i, '')
-                        .replace(/\s*```$/i, '')
-                        .trim();
-
-                    return NextResponse.json({
-                        sql: generatedSql,
-                        model: 'llama-3.3-70b-versatile',
-                        keyIndex: i,
-                        success: true
+            for (const model of CANDIDATE_MODELS) {
+                try {
+                    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${key}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            model: model,
+                            messages: [
+                                { role: 'system', content: systemPrompt },
+                                { role: 'user', content: prompt }
+                            ],
+                            temperature: 0.1,
+                            max_tokens: 500
+                        })
                     });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        let generatedSql = data.choices?.[0]?.message?.content?.trim() || '';
+                        
+                        // Strip any markdown backticks if returned by the LLM
+                        generatedSql = generatedSql
+                            .replace(/^```(?:sql)?\s*/i, '')
+                            .replace(/\s*```$/i, '')
+                            .trim();
+
+                        return NextResponse.json({
+                            sql: generatedSql,
+                            model: model,
+                            keyIndex: i,
+                            success: true
+                        });
+                    }
+
+                    const errJson = await response.json().catch(() => ({}));
+                    lastStatusCode = response.status;
+                    lastError = errJson?.error?.message || response.statusText;
+
+                    // If model doesn't exist for this tier, try next model immediately
+                    if (errJson?.error?.code === 'model_not_found') {
+                        continue;
+                    }
+
+                    // If rate limited (429) or unauthorized (401), break to next key
+                    console.warn(`Groq key #${i + 1} with model ${model} failed (${response.status}): ${lastError}.`);
+                    break;
+                } catch (err: any) {
+                    lastError = err.message || 'Network error connecting to Groq';
+                    console.warn(`Groq key #${i + 1} with model ${model} threw error: ${lastError}.`);
+                    break;
                 }
-
-                const errJson = await response.json().catch(() => ({}));
-                lastStatusCode = response.status;
-                lastError = errJson?.error?.message || response.statusText;
-
-                // If rate limited (429) or unauthorized (401), try the next key
-                console.warn(`Groq key #${i + 1} failed (${response.status}): ${lastError}. Trying failover key...`);
-            } catch (err: any) {
-                lastError = err.message || 'Network error connecting to Groq';
-                console.warn(`Groq key #${i + 1} request threw error: ${lastError}. Trying failover key...`);
             }
         }
 
         return NextResponse.json({ 
-            error: `All Groq keys failed. Last error (${lastStatusCode}): ${lastError}` 
+            error: `All Groq keys/models failed. Last error (${lastStatusCode}): ${lastError}` 
         }, { status: lastStatusCode });
 
     } catch (err: any) {
